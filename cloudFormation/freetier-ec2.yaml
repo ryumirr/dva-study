@@ -1,0 +1,28 @@
+#aws cloudformation deploy --template-file cloudFormation/freetier-ec2.yaml --stack-name Larav5 
+AWSTemplateFormatVersion: "2010-09-09"
+Description: Create 2 S3 Buckets, Lambda Function (Python), IAM Role, and S3 trigger.
+
+Resources:
+  S3Bucket1:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Ref S3BucketName # Duplicates Not Allowed
+
+  S3TriggerPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref LambdaFunctionName
+      Action: lambda:InvokeFunction
+      Principal: s3.amazonaws.com
+      SourceArn: !GetAtt S3Bucket1.Arn
+
+Parameters:
+  S3BucketName:
+    Type: String
+    Default: my-s3-bucket-soyeon-122323
+    Description: The name of the primary S3 bucket.
+
+  LambdaFunctionName:
+    Type: String
+    Default: MyS3TriggerFunction
+    Description: The name of the Lambda function.
