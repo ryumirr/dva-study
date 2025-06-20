@@ -1,4 +1,4 @@
-#aws cloudformation deploy --template-file cloudFormation/freetier-ec2.yaml --stack-name Larav5 
+#aws cloudformation deploy --template-file cloudFormation/freetier-cloudFormation.yaml --stack-name Larav5 
 AWSTemplateFormatVersion: "2010-09-09"
 Description: Create 2 S3 Buckets, Lambda Function (Python), IAM Role, and S3 trigger.
 
