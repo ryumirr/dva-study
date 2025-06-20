@@ -4,7 +4,7 @@
 
 ---
 
-### ✅ [L2 - CloudFormation + CLI 방식]
+### [L2 - CloudFormation + CLI 방식]
 
 ```bash
 # CDK 환경 준비
@@ -25,7 +25,7 @@ aws lambda invoke \
 
 
 
-### ✅ L3 + L2 - CDK 방식]
+###  L3 + L2 - CDK 방식]
 
 # CDK 스택 배포 (app.py에서 lambda_s3_stack_L3.py 사용)
 cdk deploy --app "python FirstDay/app.py" --region us-east-1
