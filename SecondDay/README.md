@@ -36,39 +36,6 @@
 }
 ```
 
----
-
-## ✅ Verify S3 access for the user named 'nini' after configuring the new IAM role and user profile on aws CLI
-
-```bash
-aws configure --profile nini
-
-aws configure list --profile nini
-
-cat ~/.aws/config
-
-aws s3 ls --profile nini
-
-aws sts assume-role \
-  --role-arn arn:aws:iam::{account-id}:role/s3-add-role-name \
-  --role-session-name demoSession \
-  --profile nini
-```
-
----
-
-## ✅ Use MFA with the AWS CLI
-
-```bash
-aws sts get-session-token \
-  --serial-number arn:aws:iam::{account-id}:mfa/nini \
-  --token-code 749947 \
-  --profile nini
-
-aws sts get-session-token
-```
-
----
 
 ## ✅ Stage 3: 사용자 인증 및 ID 페더레이션
 
@@ -114,15 +81,53 @@ aws sts get-session-token
 
 -------------------
 
-### CloudFormation을 활용해 S3 Read-Only 사용자를 자동 생성
+
+## 실습1
+
+## ✅ Verify S3 access for the user named 'nini' after configuring the new IAM role and user profile on aws CLI
+
+```bash
+aws configure --profile nini
+
+aws configure list --profile nini
+
+cat ~/.aws/config
+
+aws s3 ls --profile nini
+
+aws sts assume-role \
+  --role-arn arn:aws:iam::{account-id}:role/s3-add-role-name \
+  --role-session-name demoSession \
+  --profile nini
+```
+
+---
+
+## ✅ Use MFA with the AWS CLI
+
+```bash
+aws sts get-session-token \
+  --serial-number arn:aws:iam::{account-id}:mfa/nini \
+  --token-code 749947 \
+  --profile nini
+
+aws sts get-session-token
+```
+
+---
+
+## 실습2
+
+### S3 Read-only User Restricted to Specific IP (localhost backup)
 
 `SecondDay/cloudFormation.yaml`
 
+`SecondDay/s3-backup.sh`
+
+----
+
 aws cloudformation create-stack \
-  --stack-name my-readonly-s3-stack \
+  --stack-name backup-s3-ip-restricted \
   --template-body file://SecondDay/cloudFormation.yaml \
+  --parameters ParameterKey=AllowedIP,ParameterValue=203.0.113.25/32 \
   --capabilities CAPABILITY_NAMED_IAM
-
-
-  aws cloudformation describe-stacks \
-  --stack-name my-readonly-s3-stack
