@@ -1,0 +1,53 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Create a read-only IAM user for S3 access
+
+Resources:
+  # 1. S3 버킷 생성
+  ReadOnlyBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: my-readonly-bucket
+
+  # 2. IAM 사용자 생성
+  ReadOnlyUser:
+    Type: AWS::IAM::User
+    Properties:
+      UserName: readonly-user
+
+  # 3. 정책 문서 정의 (GetObject만 허용)
+  ReadOnlyPolicy:
+    Type: AWS::IAM::Policy
+    Properties:
+      PolicyName: S3ReadOnlyPolicy
+      Users:
+        - !Ref ReadOnlyUser
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Action:
+              - s3:GetObject
+            Resource: !Sub arn:aws:s3:::${ReadOnlyBucket}/*
+
+  # 4. 사용자 액세스 키 생성 (CLI 테스트용)
+  ReadOnlyUserAccessKey:
+    Type: AWS::IAM::AccessKey
+    Properties:
+      UserName: !Ref ReadOnlyUser
+
+Outputs:
+  BucketName:
+    Description: The name of the created S3 bucket
+    Value: !Ref ReadOnlyBucket
+
+  IAMUser:
+    Description: The IAM User name
+    Value: !Ref ReadOnlyUser
+
+  AccessKeyId:
+    Description: Access Key ID for the readonly-user
+    Value: !Ref ReadOnlyUserAccessKey
+
+  SecretAccessKey:
+    Description: Secret Access Key (note- shows only once)
+    Value: !GetAtt ReadOnlyUserAccessKey.SecretAccessKey

@@ -110,3 +110,19 @@ aws sts get-session-token
 - IAM → Groups → Create group (예: `AdminGroup`)
 - 정책 연결: 예) `AmazonEC2FullAccess`
 - IAM 사용자 그룹에 추가하여 권한 부여
+
+
+-------------------
+
+### CloudFormation을 활용해 S3 Read-Only 사용자를 자동 생성
+
+`SecondDay/cloudFormation.yaml`
+
+aws cloudformation create-stack \
+  --stack-name my-readonly-s3-stack \
+  --template-body file://SecondDay/cloudFormation.yaml \
+  --capabilities CAPABILITY_NAMED_IAM
+
+
+  aws cloudformation describe-stacks \
+  --stack-name my-readonly-s3-stack
