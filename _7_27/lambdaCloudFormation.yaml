@@ -1,0 +1,232 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: End-to-end Lambda-based S3 upload system with JWT-auth, presigned URL, logging, and alerting
+
+Parameters:
+  UploadBucketName:
+    Type: String
+    Default: my-secure-upload-bucket
+
+  NotificationEmail:
+    Type: String
+    Description: Email to receive error alerts
+
+Resources:
+  ### IAM Role for Lambda ###
+  LambdaExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: presigned-url-lambda-role
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+        - arn:aws:iam::aws:policy/AmazonS3FullAccess
+
+  ### Lambda Layer (optional) ###
+  SharedLayer:
+    Type: AWS::Lambda::LayerVersion
+    Properties:
+      LayerName: common-utils
+      CompatibleRuntimes: [python3.11]
+      Content:
+        S3Bucket: !Ref UploadBucketName
+        S3Key: layers/common-utils.zip
+
+  ### Lambda for generating presigned URL with JWT context ###
+  GenerateUploadUrlFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: generate-upload-url
+      Runtime: python3.11
+      Handler: index.handler
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Timeout: 15
+      MemorySize: 256
+      ReservedConcurrentExecutions: 5
+      Environment:
+        Variables:
+          UPLOAD_BUCKET: !Ref UploadBucketName
+      Layers:
+        - !Ref SharedLayer
+      Code:
+        ZipFile: |
+          import boto3, os
+
+          s3 = boto3.client('s3')
+
+          def handler(event, context):
+              user_id = event["requestContext"]["authorizer"]["jwt"]["claims"]["sub"]
+              file_name = f"uploads/{user_id}/photo.jpg"
+              bucket = os.environ["UPLOAD_BUCKET"]
+
+              url = s3.generate_presigned_url(
+                  ClientMethod='put_object',
+                  Params={
+                      'Bucket': bucket,
+                      'Key': file_name,
+                      'ContentType': 'image/jpeg'
+                  },
+                  ExpiresIn=300
+              )
+
+              return {
+                  "statusCode": 200,
+                  "body": url
+              }
+
+  ### Cognito JWT Authorizer ###
+  UploadApiAuthorizer:
+    Type: AWS::ApiGatewayV2::Authorizer
+    Properties:
+      ApiId: !Ref UploadApi
+      AuthorizerType: JWT
+      IdentitySource: "$request.header.Authorization"
+      Name: CognitoJwtAuthorizer
+      JwtConfiguration:
+        Audience:
+          - YOUR_COGNITO_APP_CLIENT_ID
+        Issuer: https://cognito-idp.ap-northeast-1.amazonaws.com/YOUR_COGNITO_USER_POOL_ID
+
+  ### API Gateway (HTTP API v2) ###
+  UploadApi:
+    Type: AWS::ApiGatewayV2::Api
+    Properties:
+      Name: upload-api
+      ProtocolType: HTTP
+
+  LambdaIntegration:
+    Type: AWS::ApiGatewayV2::Integration
+    Properties:
+      ApiId: !Ref UploadApi
+      IntegrationType: AWS_PROXY
+      IntegrationUri: !Sub arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:${GenerateUploadUrlFunction}
+      PayloadFormatVersion: "2.0"
+
+  UploadRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref UploadApi
+      RouteKey: "GET /presign"
+      Target: !Sub integrations/${LambdaIntegration}
+      AuthorizationType: JWT
+      AuthorizerId: !Ref UploadApiAuthorizer
+
+  ApiStage:
+    Type: AWS::ApiGatewayV2::Stage
+    Properties:
+      ApiId: !Ref UploadApi
+      StageName: prod
+      AutoDeploy: true
+
+  PermissionToInvokePresignLambda:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref GenerateUploadUrlFunction
+      Action: lambda:InvokeFunction
+      Principal: apigateway.amazonaws.com
+
+  ### S3 Bucket for Upload ###
+  UploadBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Ref UploadBucketName
+
+  ### Lambda for post-upload processing ###
+  UploadProcessorFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: process-uploaded-image
+      Runtime: python3.11
+      Handler: processor.handler
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Timeout: 30
+      MemorySize: 512
+      ReservedConcurrentExecutions: 10
+      Environment:
+        Variables:
+          LOG_LEVEL: INFO
+      Code:
+        ZipFile: |
+          import logging
+          def handler(event, context):
+              try:
+                  if event.get('success'):
+                      return {
+                          'statusCode': 200,
+                          'body': event
+                      }
+                  else:
+                      raise Exception('Success is False', event)
+              except Exception as e:
+                  logging.exception("Processing failed")
+                  raise e
+
+  PermissionToInvokeProcessor:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref UploadProcessorFunction
+      Action: lambda:InvokeFunction
+      Principal: s3.amazonaws.com
+      SourceArn: !GetAtt UploadBucket.Arn
+
+  S3Trigger:
+    Type: AWS::S3::BucketNotification
+    Properties:
+      Bucket: !Ref UploadBucket
+      NotificationConfiguration:
+        LambdaConfigurations:
+          - Event: s3:ObjectCreated:Put
+            Function: !GetAtt UploadProcessorFunction.Arn
+
+  UploadProcessorLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub "/aws/lambda/${UploadProcessorFunction}"
+      RetentionInDays: 7
+
+  UploadAlarmTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      DisplayName: LambdaErrorTopic
+
+  EmailSubscription:
+    Type: AWS::SNS::Subscription
+    Properties:
+      TopicArn: !Ref UploadAlarmTopic
+      Protocol: email
+      Endpoint: !Ref NotificationEmail
+
+  UploadErrorAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: UploadProcessorErrors
+      MetricName: Errors
+      Namespace: AWS/Lambda
+      Statistic: Sum
+      Period: 60
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      Dimensions:
+        - Name: FunctionName
+          Value: !Ref UploadProcessorFunction
+      AlarmActions:
+        - !Ref UploadAlarmTopic
+
+  UploadProcessorEventInvokeConfig:
+    Type: AWS::Lambda::EventInvokeConfig
+    Properties:
+      FunctionName: !Ref UploadProcessorFunction
+      Qualifier: "$LATEST"
+      MaximumRetryAttempts: 2
+      MaximumEventAgeInSeconds: 60
+      DestinationConfig:
+        OnFailure:
+          Destination: !Ref UploadAlarmTopic
+        OnSuccess:
+          Destination: !Ref UploadAlarmTopic
